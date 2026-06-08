@@ -1,0 +1,383 @@
+{\rtf1\ansi\ansicpg1251\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 import logging\
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup\
+from telegram.ext import (\
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,\
+    MessageHandler, filters, ContextTypes, ConversationHandler\
+)\
+\
+TOKEN = "YOUR_BOT_TOKEN"\
+\
+logging.basicConfig(level=logging.INFO)\
+\
+# \uc0\u1057 \u1086 \u1089 \u1090 \u1086 \u1103 \u1085 \u1080 \u1103  \u1076 \u1080 \u1072 \u1083 \u1086 \u1075 \u1072 \
+(VOLUME, HEIGHT, FLOORS, COMPLEXITY_BUILD, COMPLEXITY_WORK,\
+ LOCATION, WORK_TYPES, ADD_CONDITIONS, RESULT) = range(9)\
+\
+# \uc0\u1056 \u1077 \u1075 \u1080 \u1086 \u1085 \u1072 \u1083 \u1100 \u1085 \u1099 \u1077  \u1082 \u1086 \u1101 \u1092 \u1092 \u1080 \u1094 \u1080 \u1077 \u1085 \u1090 \u1099 \
+LOCATION_COEFF = \{\
+    "\uc0\u1052 \u1086 \u1089 \u1082 \u1074 \u1072 ": 1.20,\
+    "\uc0\u1057 \u1072 \u1085 \u1082 \u1090 -\u1055 \u1077 \u1090 \u1077 \u1088 \u1073 \u1091 \u1088 \u1075 ": 1.15,\
+    "\uc0\u1052 \u1072 \u1093 \u1072 \u1095 \u1082 \u1072 \u1083 \u1072 ": 1.00,\
+    "\uc0\u1044 \u1088 \u1091 \u1075 \u1086 \u1081  \u1075 \u1086 \u1088 \u1086 \u1076 ": 1.00,\
+\}\
+\
+# \uc0\u1050 \u1072 \u1090 \u1077 \u1075 \u1086 \u1088 \u1080 \u1080  \u1089 \u1083 \u1086 \u1078 \u1085 \u1086 \u1089 \u1090 \u1080  \u1079 \u1076 \u1072 \u1085 \u1080 \u1103  (\u1090 \u1072 \u1073 \u1083 . 5)\
+BUILD_COMPLEXITY = \{\
+    "I \'97 1 \uc0\u1087 \u1088 \u1103 \u1084 \u1086 \u1091 \u1075 \u1086 \u1083 \u1100 \u1085 \u1080 \u1082 ": 0.85,\
+    "II \'97 2-3 \uc0\u1087 \u1088 \u1103 \u1084 \u1086 \u1091 \u1075 \u1086 \u1083 \u1100 \u1085 \u1080 \u1082 \u1072 ": 1.00,\
+    "III \'97 \uc0\u1089 \u1083 \u1086 \u1078 \u1085 \u1072 \u1103  \u1092 \u1086 \u1088 \u1084 \u1072 ": 1.20,\
+\}\
+\
+# \uc0\u1050 \u1072 \u1090 \u1077 \u1075 \u1086 \u1088 \u1080 \u1080  \u1089 \u1083 \u1086 \u1078 \u1085 \u1086 \u1089 \u1090 \u1080  \u1088 \u1072 \u1073 \u1086 \u1090  (\u1090 \u1072 \u1073 \u1083 . 6/7)\
+WORK_COMPLEXITY = \{\
+    "I \'97 \uc0\u1074 \u1080 \u1079 \u1091 \u1072 \u1083 \u1100 \u1085 \u1086 \u1077  (\u1073 \u1077 \u1079  \u1080 \u1085 \u1089 \u1090 \u1088 \u1091 \u1084 \u1077 \u1085 \u1090 \u1086 \u1074 )": 0.80,\
+    "II \'97 \uc0\u1080 \u1085 \u1089 \u1090 \u1088 \u1091 \u1084 \u1077 \u1085 \u1090 \u1072 \u1083 \u1100 \u1085 \u1086 \u1077  (\u1086 \u1076 \u1085 .)": 1.00,\
+    "III \'97 \uc0\u1080 \u1085 \u1089 \u1090 \u1088 \u1091 \u1084 \u1077 \u1085 \u1090 \u1072 \u1083 \u1100 \u1085 \u1086 \u1077  (\u1087 \u1086 \u1074 \u1090 .)": 1.20,\
+\}\
+\
+# \uc0\u1042 \u1080 \u1076 \u1099  \u1088 \u1072 \u1073 \u1086 \u1090 : (\u1073 \u1072 \u1079 \u1086 \u1074 \u1072 \u1103  \u1089 \u1090 \u1072 \u1074 \u1082 \u1072  \u1088 \u1091 \u1073 /100\u1084 \'b3, \u1085 \u1072 \u1079 \u1074 \u1072 \u1085 \u1080 \u1077 , \u1086 \u1087 \u1080 \u1089 \u1072 \u1085 \u1080 \u1077 )\
+WORK_TYPES_LIST = \{\
+    "obmer": ("\uc0\u1054 \u1073 \u1084 \u1077 \u1088 \u1085 \u1099 \u1077  \u1088 \u1072 \u1073 \u1086 \u1090 \u1099 ", "\u1054 \u1073 \u1084 \u1077 \u1088 \u1099 , \u1089 \u1093 \u1077 \u1084 \u1099 , \u1095 \u1077 \u1088 \u1090 \u1077 \u1078 \u1080  (\u1090 \u1072 \u1073 \u1083 . 1/2)", 690.4),\
+    "inzh": ("\uc0\u1048 \u1085 \u1078 \u1077 \u1085 \u1077 \u1088 \u1085 \u1086 \u1077  \u1086 \u1073 \u1089 \u1083 \u1077 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1077  \u1082 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1081 ", "\u1044 \u1077 \u1092 \u1077 \u1082 \u1090 \u1099 , \u1088 \u1072 \u1089 \u1095 \u1105 \u1090 \u1099 , \u1079 \u1072 \u1082 \u1083 \u1102 \u1095 \u1077 \u1085 \u1080 \u1077  (\u1090 \u1072 \u1073 \u1083 . 3/4)", 604.8),\
+\}\
+\
+# \uc0\u1044 \u1086 \u1087 \u1086 \u1083 \u1085 \u1080 \u1090 \u1077 \u1083 \u1100 \u1085 \u1099 \u1077  \u1091 \u1089 \u1083 \u1086 \u1074 \u1080 \u1103  (\u1090 \u1072 \u1073 \u1083 . 10 \u1057 \u1041 \u1062 \u1055 )\
+ADD_CONDITIONS_LIST = \{\
+    "jb": ("\uc0\u1046 /\u1073  \u1082 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1080 ", "\u1042 \u1089 \u1082 \u1088 \u1099 \u1090 \u1080 \u1077 , \u1086 \u1087 \u1088 \u1077 \u1076 \u1077 \u1083 \u1077 \u1085 \u1080 \u1077  \u1072 \u1088 \u1084 \u1080 \u1088 \u1086 \u1074 \u1072 \u1085 \u1080 \u1103 , \u1091 \u1083 \u1100 \u1090 \u1088 \u1072 \u1079 \u1074 \u1091 \u1082 ", 0.25),\
+    "gosexpert": ("\uc0\u1043 \u1086 \u1089 . \u1101 \u1082 \u1089 \u1087 \u1077 \u1088 \u1090 \u1080 \u1079 \u1072 ", "\u1055 \u1086 \u1076 \u1075 \u1086 \u1090 \u1086 \u1074 \u1082 \u1072  \u1076 \u1086 \u1082 \u1091 \u1084 \u1077 \u1085 \u1090 \u1072 \u1094 \u1080 \u1080  \u1076 \u1083 \u1103  \u1087 \u1088 \u1086 \u1093 \u1086 \u1078 \u1076 \u1077 \u1085 \u1080 \u1103 ", 0.20),\
+    "seism8": ("\uc0\u1057 \u1077 \u1081 \u1089 \u1084 \u1080 \u1095 \u1085 \u1086 \u1089 \u1090 \u1100  8 \u1073 \u1072 \u1083 \u1083 \u1086 \u1074 ", "\u1058 \u1072 \u1073 \u1083 . 10 \u1087 .12 \u1057 \u1041 \u1062 \u1055  \'97 \u1072 \u1082 \u1090 \u1091 \u1072 \u1083 \u1100 \u1085 \u1086  \u1076 \u1083 \u1103  \u1044 \u1072 \u1075 \u1077 \u1089 \u1090 \u1072 \u1085 \u1072 ", 0.20),\
+    "seism9": ("\uc0\u1057 \u1077 \u1081 \u1089 \u1084 \u1080 \u1095 \u1085 \u1086 \u1089 \u1090 \u1100  9 \u1073 \u1072 \u1083 \u1083 \u1086 \u1074 ", "\u1058 \u1072 \u1073 \u1083 . 10 \u1087 .13 \u1057 \u1041 \u1062 \u1055 ", 0.25),\
+    "monument": ("\uc0\u1055 \u1072 \u1084 \u1103 \u1090 \u1085 \u1080 \u1082  \u1072 \u1088 \u1093 \u1080 \u1090 \u1077 \u1082 \u1090 \u1091 \u1088 \u1099 ", "\u1058 \u1072 \u1073 \u1083 . 10 \u1087 .5 \u1057 \u1041 \u1062 \u1055 ", 0.25),\
+    "cramped": ("\uc0\u1057 \u1090 \u1077 \u1089 \u1085 \u1105 \u1085 \u1085 \u1086 \u1089 \u1090 \u1100  / \u1079 \u1072 \u1093 \u1083 \u1072 \u1084 \u1083 \u1105 \u1085 \u1085 \u1086 \u1089 \u1090 \u1100 ", "\u1053 \u1072 \u1089 \u1099 \u1097 \u1077 \u1085 \u1085 \u1086 \u1089 \u1090 \u1100  \u1086 \u1073 \u1086 \u1088 \u1091 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1077 \u1084  >50%, \u1090 \u1072 \u1073 \u1083 . 10 \u1087 .2", 0.15),\
+    "unheated": ("\uc0\u1053 \u1077 \u1086 \u1090 \u1072 \u1087 \u1083 \u1080 \u1074 \u1072 \u1077 \u1084 \u1099 \u1077  \u1087 \u1086 \u1084 \u1077 \u1097 \u1077 \u1085 \u1080 \u1103 ", "\u1063 \u1077 \u1088 \u1076 \u1072 \u1082 \u1080 , \u1082 \u1088 \u1086 \u1074 \u1083 \u1103  \u1074  \u1085 \u1077 \u1073 \u1083 \u1072 \u1075 \u1086 \u1087 \u1088 \u1080 \u1103 \u1090 \u1085 \u1099 \u1081  \u1087 \u1077 \u1088 \u1080 \u1086 \u1076 , \u1087 .4", 0.20),\
+    "reinforced": ("\uc0\u1059 \u1089 \u1080 \u1083 \u1077 \u1085 \u1085 \u1099 \u1077  \u1082 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1080 ", "\u1050 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1080 , \u1091 \u1089 \u1080 \u1083 \u1077 \u1085 \u1085 \u1099 \u1077  \u1087 \u1086  \u1088 \u1072 \u1085 \u1077 \u1077  \u1088 \u1072 \u1079 \u1088 \u1072 \u1073 . \u1087 \u1088 \u1086 \u1077 \u1082 \u1090 \u1072 \u1084 ", 0.20),\
+\}\
+\
+INDEX_K = 7.07  # \uc0\u1048 \u1085 \u1076 \u1077 \u1082 \u1089  II \u1082 \u1074 . 2026\
+\
+\
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    context.user_data.clear()\
+    await update.message.reply_text(\
+        "\uc0\u55356 \u57303  *\u1050 \u1072 \u1083 \u1100 \u1082 \u1091 \u1083 \u1103 \u1090 \u1086 \u1088  \u1091 \u1089 \u1083 \u1091 \u1075  \u1086 \u1073 \u1089 \u1083 \u1077 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1103  \u1080  \u1087 \u1088 \u1086 \u1077 \u1082 \u1090 \u1080 \u1088 \u1086 \u1074 \u1072 \u1085 \u1080 \u1103 *\\n"\
+        "_\uc0\u1055 \u1088 \u1072 \u1081 \u1084  \u1061 \u1072 \u1091 \u1089 _ | \u1041 \u1072 \u1079 \u1086 \u1074 \u1099 \u1077  \u1094 \u1077 \u1085 \u1099  \u1087 \u1086  \u1057 \u1041 \u1062 \u1055  81-2001-25\\n"\
+        "\uc0\u1048 \u1085 \u1076 \u1077 \u1082 \u1089  II \u1082 \u1074 . 2026: \u1082  = 7,07 | \u1053 \u1044 \u1057  \u1085 \u1077  \u1074 \u1082 \u1083 \u1102 \u1095 \u1105 \u1085 \\n\\n"\
+        "\uc0\u1042 \u1074 \u1077 \u1076 \u1080 \u1090 \u1077  *\u1089 \u1090 \u1088 \u1086 \u1080 \u1090 \u1077 \u1083 \u1100 \u1085 \u1099 \u1081  \u1086 \u1073 \u1098 \u1105 \u1084  \u1079 \u1076 \u1072 \u1085 \u1080 \u1103 * \u1074  \u1084 \'b3\\n"\
+        "_(\uc0\u1085 \u1072 \u1087 \u1088 \u1080 \u1084 \u1077 \u1088 : 5000)_",\
+        parse_mode="Markdown"\
+    )\
+    return VOLUME\
+\
+\
+async def get_volume(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    try:\
+        vol = float(update.message.text.replace(",", "."))\
+        if vol <= 0:\
+            raise ValueError\
+        context.user_data["volume"] = vol\
+    except ValueError:\
+        await update.message.reply_text("\uc0\u10060  \u1042 \u1074 \u1077 \u1076 \u1080 \u1090 \u1077  \u1095 \u1080 \u1089 \u1083 \u1086  \u1073 \u1086 \u1083 \u1100 \u1096 \u1077  0, \u1085 \u1072 \u1087 \u1088 \u1080 \u1084 \u1077 \u1088 : 5000")\
+        return VOLUME\
+\
+    await update.message.reply_text(\
+        f"\uc0\u9989  \u1054 \u1073 \u1098 \u1105 \u1084 : \{vol:,.0f\} \u1084 \'b3\\n\\n\u1058 \u1077 \u1087 \u1077 \u1088 \u1100  \u1074 \u1074 \u1077 \u1076 \u1080 \u1090 \u1077  *\u1074 \u1099 \u1089 \u1086 \u1090 \u1091  \u1079 \u1076 \u1072 \u1085 \u1080 \u1103 * \u1074  \u1084 \u1077 \u1090 \u1088 \u1072 \u1093 \\n_(\u1085 \u1072 \u1087 \u1088 \u1080 \u1084 \u1077 \u1088 : 9)_",\
+        parse_mode="Markdown"\
+    )\
+    return HEIGHT\
+\
+\
+async def get_height(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    try:\
+        h = float(update.message.text.replace(",", "."))\
+        if h <= 0:\
+            raise ValueError\
+        context.user_data["height"] = h\
+    except ValueError:\
+        await update.message.reply_text("\uc0\u10060  \u1042 \u1074 \u1077 \u1076 \u1080 \u1090 \u1077  \u1095 \u1080 \u1089 \u1083 \u1086  \u1073 \u1086 \u1083 \u1100 \u1096 \u1077  0, \u1085 \u1072 \u1087 \u1088 \u1080 \u1084 \u1077 \u1088 : 9")\
+        return HEIGHT\
+\
+    keyboard = [\
+        [InlineKeyboardButton("1 \uc0\u1101 \u1090 \u1072 \u1078 ", callback_data="floors_1")],\
+        [InlineKeyboardButton("2\'965 \uc0\u1101 \u1090 \u1072 \u1078 \u1077 \u1081 ", callback_data="floors_2_5")],\
+        [InlineKeyboardButton("6\'9612 \uc0\u1101 \u1090 \u1072 \u1078 \u1077 \u1081 ", callback_data="floors_6_12")],\
+        [InlineKeyboardButton("13+ \uc0\u1101 \u1090 \u1072 \u1078 \u1077 \u1081 ", callback_data="floors_13")],\
+    ]\
+    await update.message.reply_text(\
+        "\uc0\u55356 \u57314  \u1059 \u1082 \u1072 \u1078 \u1080 \u1090 \u1077  *\u1101 \u1090 \u1072 \u1078 \u1085 \u1086 \u1089 \u1090 \u1100 * \u1079 \u1076 \u1072 \u1085 \u1080 \u1103 :",\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return FLOORS\
+\
+\
+async def get_floors(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    query = update.callback_query\
+    await query.answer()\
+    floors_map = \{\
+        "floors_1": "\uc0\u1054 \u1076 \u1085 \u1086 \u1101 \u1090 \u1072 \u1078 \u1085 \u1086 \u1077 ",\
+        "floors_2_5": "\uc0\u1052 \u1072 \u1083 \u1086 \u1101 \u1090 \u1072 \u1078 \u1085 \u1086 \u1077  (2\'965)",\
+        "floors_6_12": "\uc0\u1052 \u1085 \u1086 \u1075 \u1086 \u1101 \u1090 \u1072 \u1078 \u1085 \u1086 \u1077  (6\'9612)",\
+        "floors_13": "\uc0\u1042 \u1099 \u1089 \u1086 \u1090 \u1085 \u1086 \u1077  (13+)",\
+    \}\
+    context.user_data["floors"] = floors_map[query.data]\
+\
+    keyboard = [[InlineKeyboardButton(k, callback_data=f"cb_\{i\}")] for i, k in enumerate(BUILD_COMPLEXITY)]\
+    await query.edit_message_text(\
+        "\uc0\u55356 \u57307  *\u1050 \u1072 \u1090 \u1077 \u1075 \u1086 \u1088 \u1080 \u1103  \u1089 \u1083 \u1086 \u1078 \u1085 \u1086 \u1089 \u1090 \u1080  \u1079 \u1076 \u1072 \u1085 \u1080 \u1103 * (\u1090 \u1072 \u1073 \u1083 . 5 \u1057 \u1041 \u1062 \u1055 ):\\n\\n"\
+        "\'95 I \'97 \uc0\u1087 \u1088 \u1086 \u1089 \u1090 \u1072 \u1103  \u1087 \u1088 \u1103 \u1084 \u1086 \u1091 \u1075 \u1086 \u1083 \u1100 \u1085 \u1072 \u1103  \u1092 \u1086 \u1088 \u1084 \u1072 \\n"\
+        "\'95 II \'97 2-3 \uc0\u1087 \u1088 \u1103 \u1084 \u1086 \u1091 \u1075 \u1086 \u1083 \u1100 \u1085 \u1080 \u1082 \u1072  \u1080 \u1083 \u1080  \u1043 /\u1058 /\u1055 -\u1086 \u1073 \u1088 \u1072 \u1079 \u1085 \u1072 \u1103 \\n"\
+        "\'95 III \'97 \uc0\u1089 \u1083 \u1086 \u1078 \u1085 \u1072 \u1103  \u1092 \u1086 \u1088 \u1084 \u1072 , \u1084 \u1085 \u1086 \u1075 \u1086 \u1091 \u1075 \u1086 \u1083 \u1100 \u1085 \u1080 \u1082 \u1080 , \u1082 \u1088 \u1080 \u1074 \u1086 \u1083 \u1080 \u1085 \u1077 \u1081 \u1085 \u1099 \u1077 ",\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return COMPLEXITY_BUILD\
+\
+\
+async def get_complexity_build(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    query = update.callback_query\
+    await query.answer()\
+    idx = int(query.data.split("_")[1])\
+    key = list(BUILD_COMPLEXITY.keys())[idx]\
+    context.user_data["complexity_build"] = key\
+\
+    keyboard = [[InlineKeyboardButton(k, callback_data=f"cw_\{i\}")] for i, k in enumerate(WORK_COMPLEXITY)]\
+    await query.edit_message_text(\
+        "\uc0\u55357 \u56615  *\u1050 \u1072 \u1090 \u1077 \u1075 \u1086 \u1088 \u1080 \u1103  \u1089 \u1083 \u1086 \u1078 \u1085 \u1086 \u1089 \u1090 \u1080  \u1088 \u1072 \u1073 \u1086 \u1090 * (\u1090 \u1072 \u1073 \u1083 . 6/7 \u1057 \u1041 \u1062 \u1055 ):\\n\\n"\
+        "\'95 I \'97 \uc0\u1090 \u1086 \u1083 \u1100 \u1082 \u1086  \u1074 \u1080 \u1079 \u1091 \u1072 \u1083 \u1100 \u1085 \u1099 \u1081  \u1086 \u1089 \u1084 \u1086 \u1090 \u1088 , \u1087 \u1072 \u1089 \u1087 \u1086 \u1088 \u1090 \u1080 \u1079 \u1072 \u1094 \u1080 \u1103 \\n"\
+        "\'95 II \'97 \uc0\u1080 \u1085 \u1089 \u1090 \u1088 \u1091 \u1084 \u1077 \u1085 \u1090 \u1072 \u1083 \u1100 \u1085 \u1086 \u1077  \u1086 \u1073 \u1089 \u1083 \u1077 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1077  (\u1086 \u1076 \u1085 \u1086 \u1082 \u1088 \u1072 \u1090 \u1085 \u1086 \u1077 )\\n"\
+        "\'95 III \'97 \uc0\u1080 \u1085 \u1089 \u1090 \u1088 \u1091 \u1084 \u1077 \u1085 \u1090 \u1072 \u1083 \u1100 \u1085 \u1086 \u1077  \u1086 \u1073 \u1089 \u1083 \u1077 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1077  (\u1087 \u1086 \u1074 \u1090 \u1086 \u1088 \u1085 \u1086 \u1077 /\u1084 \u1086 \u1085 \u1080 \u1090 \u1086 \u1088 \u1080 \u1085 \u1075 )",\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return COMPLEXITY_WORK\
+\
+\
+async def get_complexity_work(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    query = update.callback_query\
+    await query.answer()\
+    idx = int(query.data.split("_")[1])\
+    key = list(WORK_COMPLEXITY.keys())[idx]\
+    context.user_data["complexity_work"] = key\
+\
+    keyboard = [[InlineKeyboardButton(loc, callback_data=f"loc_\{i\}")] for i, loc in enumerate(LOCATION_COEFF)]\
+    await query.edit_message_text(\
+        "\uc0\u55357 \u56525  *\u1056 \u1072 \u1089 \u1087 \u1086 \u1083 \u1086 \u1078 \u1077 \u1085 \u1080 \u1077  \u1086 \u1073 \u1098 \u1077 \u1082 \u1090 \u1072 :*",\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return LOCATION\
+\
+\
+async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    query = update.callback_query\
+    await query.answer()\
+    idx = int(query.data.split("_")[1])\
+    loc = list(LOCATION_COEFF.keys())[idx]\
+    context.user_data["location"] = loc\
+\
+    context.user_data["work_types"] = []\
+    keyboard = [\
+        [InlineKeyboardButton("\uc0\u55357 \u56528  \u1054 \u1073 \u1084 \u1077 \u1088 \u1085 \u1099 \u1077  \u1088 \u1072 \u1073 \u1086 \u1090 \u1099 ", callback_data="wt_obmer")],\
+        [InlineKeyboardButton("\uc0\u55357 \u56589  \u1048 \u1085 \u1078 \u1077 \u1085 \u1077 \u1088 \u1085 \u1086 \u1077  \u1086 \u1073 \u1089 \u1083 \u1077 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1077  \u1082 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1081 ", callback_data="wt_inzh")],\
+        [InlineKeyboardButton("\uc0\u9989  \u1042 \u1099 \u1073 \u1088 \u1072 \u1090 \u1100  \u1086 \u1073 \u1072  \u1074 \u1080 \u1076 \u1072 ", callback_data="wt_both")],\
+    ]\
+    await query.edit_message_text(\
+        "\uc0\u55357 \u56523  *\u1042 \u1080 \u1076 \u1099  \u1088 \u1072 \u1073 \u1086 \u1090 :*\\n\\n"\
+        "\uc0\u55357 \u56528  *\u1054 \u1073 \u1084 \u1077 \u1088 \u1085 \u1099 \u1077  \u1088 \u1072 \u1073 \u1086 \u1090 \u1099 * \'97 \u1086 \u1073 \u1084 \u1077 \u1088 \u1099 , \u1089 \u1093 \u1077 \u1084 \u1099 , \u1095 \u1077 \u1088 \u1090 \u1077 \u1078 \u1080  (\u1090 \u1072 \u1073 \u1083 . 1/2)\\n"\
+        "\uc0\u55357 \u56589  *\u1048 \u1085 \u1078 \u1077 \u1085 \u1077 \u1088 \u1085 \u1086 \u1077  \u1086 \u1073 \u1089 \u1083 \u1077 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1077 * \'97 \u1076 \u1077 \u1092 \u1077 \u1082 \u1090 \u1099 , \u1088 \u1072 \u1089 \u1095 \u1105 \u1090 \u1099 , \u1079 \u1072 \u1082 \u1083 \u1102 \u1095 \u1077 \u1085 \u1080 \u1077  (\u1090 \u1072 \u1073 \u1083 . 3/4)\\n\\n"\
+        "\uc0\u1042 \u1099 \u1073 \u1077 \u1088 \u1080 \u1090 \u1077  \u1085 \u1091 \u1078 \u1085 \u1099 \u1077  \u1074 \u1080 \u1076 \u1099 :",\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return WORK_TYPES\
+\
+\
+async def get_work_types(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    query = update.callback_query\
+    await query.answer()\
+\
+    if query.data == "wt_obmer":\
+        context.user_data["work_types"] = ["obmer"]\
+    elif query.data == "wt_inzh":\
+        context.user_data["work_types"] = ["inzh"]\
+    elif query.data == "wt_both":\
+        context.user_data["work_types"] = ["obmer", "inzh"]\
+\
+    context.user_data["add_conditions"] = []\
+    return await show_add_conditions(query)\
+\
+\
+async def show_add_conditions(query):\
+    selected = []  # \uc0\u1073 \u1091 \u1076 \u1077 \u1090  \u1087 \u1077 \u1088 \u1077 \u1076 \u1072 \u1074 \u1072 \u1090 \u1100 \u1089 \u1103  \u1095 \u1077 \u1088 \u1077 \u1079  \u1082 \u1086 \u1085 \u1090 \u1077 \u1082 \u1089 \u1090 \
+    keyboard = []\
+    for key, (name, desc, pct) in ADD_CONDITIONS_LIST.items():\
+        keyboard.append([InlineKeyboardButton(\
+            f"\uc0\u9744  \{name\} (+\{int(pct*100)\}%)", callback_data=f"ac_\{key\}"\
+        )])\
+    keyboard.append([InlineKeyboardButton("\uc0\u10145 \u65039  \u1056 \u1072 \u1089 \u1089 \u1095 \u1080 \u1090 \u1072 \u1090 \u1100  \u1089 \u1090 \u1086 \u1080 \u1084 \u1086 \u1089 \u1090 \u1100 ", callback_data="ac_done")])\
+\
+    await query.edit_message_text(\
+        "\uc0\u10133  *\u1044 \u1086 \u1087 \u1086 \u1083 \u1085 \u1080 \u1090 \u1077 \u1083 \u1100 \u1085 \u1099 \u1077  \u1091 \u1089 \u1083 \u1086 \u1074 \u1080 \u1103 * (\u1090 \u1072 \u1073 \u1083 . 10 \u1057 \u1041 \u1062 \u1055 ):\\n"\
+        "_\uc0\u1042 \u1099 \u1073 \u1077 \u1088 \u1080 \u1090 \u1077  \u1074 \u1089 \u1077  \u1087 \u1088 \u1080 \u1084 \u1077 \u1085 \u1080 \u1084 \u1099 \u1077  \u1087 \u1091 \u1085 \u1082 \u1090 \u1099 :_\\n\\n"\
+        "\'95 \uc0\u1046 /\u1073  \u1082 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1080  +25%\\n"\
+        "\'95 \uc0\u1043 \u1086 \u1089 . \u1101 \u1082 \u1089 \u1087 \u1077 \u1088 \u1090 \u1080 \u1079 \u1072  +20%\\n"\
+        "\'95 \uc0\u1057 \u1077 \u1081 \u1089 \u1084 \u1080 \u1095 \u1085 \u1086 \u1089 \u1090 \u1100  8 \u1073 \u1072 \u1083 \u1083 \u1086 \u1074  +20%\\n"\
+        "\'95 \uc0\u1057 \u1077 \u1081 \u1089 \u1084 \u1080 \u1095 \u1085 \u1086 \u1089 \u1090 \u1100  9 \u1073 \u1072 \u1083 \u1083 \u1086 \u1074  +25%\\n"\
+        "\'95 \uc0\u1055 \u1072 \u1084 \u1103 \u1090 \u1085 \u1080 \u1082  \u1072 \u1088 \u1093 \u1080 \u1090 \u1077 \u1082 \u1090 \u1091 \u1088 \u1099  +25%\\n"\
+        "\'95 \uc0\u1057 \u1090 \u1077 \u1089 \u1085 \u1105 \u1085 \u1085 \u1086 \u1089 \u1090 \u1100  / \u1079 \u1072 \u1093 \u1083 \u1072 \u1084 \u1083 \u1105 \u1085 \u1085 \u1086 \u1089 \u1090 \u1100  +15%\\n"\
+        "\'95 \uc0\u1053 \u1077 \u1086 \u1090 \u1072 \u1087 \u1083 \u1080 \u1074 \u1072 \u1077 \u1084 \u1099 \u1077  \u1087 \u1086 \u1084 \u1077 \u1097 \u1077 \u1085 \u1080 \u1103  +20%\\n"\
+        "\'95 \uc0\u1059 \u1089 \u1080 \u1083 \u1077 \u1085 \u1085 \u1099 \u1077  \u1082 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1080  +20%\\n",\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return ADD_CONDITIONS\
+\
+\
+async def get_add_conditions(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    query = update.callback_query\
+    await query.answer()\
+\
+    if query.data == "ac_done":\
+        return await calculate_result(query, context)\
+\
+    key = query.data.replace("ac_", "")\
+    selected = context.user_data.get("add_conditions", [])\
+\
+    if key in selected:\
+        selected.remove(key)\
+    else:\
+        selected.append(key)\
+    context.user_data["add_conditions"] = selected\
+\
+    # \uc0\u1055 \u1077 \u1088 \u1077 \u1088 \u1080 \u1089 \u1086 \u1074 \u1099 \u1074 \u1072 \u1077 \u1084  \u1082 \u1085 \u1086 \u1087 \u1082 \u1080  \u1089  \u1086 \u1090 \u1084 \u1077 \u1090 \u1082 \u1072 \u1084 \u1080 \
+    keyboard = []\
+    for k, (name, desc, pct) in ADD_CONDITIONS_LIST.items():\
+        mark = "\uc0\u9989 " if k in selected else "\u9744 "\
+        keyboard.append([InlineKeyboardButton(\
+            f"\{mark\} \{name\} (+\{int(pct*100)\}%)", callback_data=f"ac_\{k\}"\
+        )])\
+    keyboard.append([InlineKeyboardButton("\uc0\u10145 \u65039  \u1056 \u1072 \u1089 \u1089 \u1095 \u1080 \u1090 \u1072 \u1090 \u1100  \u1089 \u1090 \u1086 \u1080 \u1084 \u1086 \u1089 \u1090 \u1100 ", callback_data="ac_done")])\
+\
+    await query.edit_message_text(\
+        "\uc0\u10133  *\u1044 \u1086 \u1087 \u1086 \u1083 \u1085 \u1080 \u1090 \u1077 \u1083 \u1100 \u1085 \u1099 \u1077  \u1091 \u1089 \u1083 \u1086 \u1074 \u1080 \u1103 * (\u1090 \u1072 \u1073 \u1083 . 10 \u1057 \u1041 \u1062 \u1055 ):\\n"\
+        f"_\uc0\u1042 \u1099 \u1073 \u1088 \u1072 \u1085 \u1086 : \{len(selected)\} \u1087 \u1091 \u1085 \u1082 \u1090 \u1086 \u1074 _\\n\\n"\
+        "\uc0\u1053 \u1072 \u1078 \u1084 \u1080 \u1090 \u1077  \u1085 \u1072  \u1087 \u1091 \u1085 \u1082 \u1090  \u1076 \u1083 \u1103  \u1074 \u1099 \u1073 \u1086 \u1088 \u1072 /\u1089 \u1085 \u1103 \u1090 \u1080 \u1103  \u1086 \u1090 \u1084 \u1077 \u1090 \u1082 \u1080 :",\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return ADD_CONDITIONS\
+\
+\
+async def calculate_result(query, context: ContextTypes.DEFAULT_TYPE):\
+    ud = context.user_data\
+    volume = ud["volume"]\
+    build_coeff = BUILD_COMPLEXITY[ud["complexity_build"]]\
+    work_coeff = WORK_COMPLEXITY[ud["complexity_work"]]\
+    loc_coeff = LOCATION_COEFF[ud["location"]]\
+    work_types = ud["work_types"]\
+    add_conditions = ud.get("add_conditions", [])\
+\
+    # \uc0\u1057 \u1091 \u1084 \u1084 \u1072 \u1088 \u1085 \u1099 \u1081  \u1076 \u1086 \u1087 . \u1082 \u1086 \u1101 \u1092 \u1092 \u1080 \u1094 \u1080 \u1077 \u1085 \u1090 \
+    add_pct = sum(ADD_CONDITIONS_LIST[k][2] for k in add_conditions)\
+    total_coeff = build_coeff * work_coeff * loc_coeff * (1 + add_pct) * INDEX_K\
+\
+    lines = []\
+    grand_total = 0\
+\
+    for wt in work_types:\
+        name, desc, base_rate = WORK_TYPES_LIST[wt]\
+        # \uc0\u1057 \u1090 \u1086 \u1080 \u1084 \u1086 \u1089 \u1090 \u1100  = \u1089 \u1090 \u1072 \u1074 \u1082 \u1072  (\u1088 \u1091 \u1073 /100\u1084 \'b3) * \u1086 \u1073 \u1098 \u1105 \u1084 /100 * \u1082 \u1086 \u1101 \u1092 \u1092 \u1080 \u1094 \u1080 \u1077 \u1085 \u1090 \u1099 \
+        cost = base_rate * (volume / 100) * total_coeff\
+        grand_total += cost\
+        lines.append(f"\uc0\u55357 \u56524  *\{name\}*\\n   \u1057 \u1090 \u1072 \u1074 \u1082 \u1072 : \{base_rate\} \u1088 \u1091 \u1073 /100\u1084 \'b3\\n   \u8776  \{cost:,.0f\} \u8381 ")\
+\
+    # \uc0\u1060 \u1086 \u1088 \u1084 \u1080 \u1088 \u1091 \u1077 \u1084  \u1089 \u1087 \u1080 \u1089 \u1086 \u1082  \u1074 \u1099 \u1073 \u1088 \u1072 \u1085 \u1085 \u1099 \u1093  \u1076 \u1086 \u1087 . \u1091 \u1089 \u1083 \u1086 \u1074 \u1080 \u1081 \
+    add_list = ""\
+    if add_conditions:\
+        add_list = "\\n\\n\uc0\u10133  *\u1044 \u1086 \u1087 \u1086 \u1083 \u1085 \u1080 \u1090 \u1077 \u1083 \u1100 \u1085 \u1099 \u1077  \u1091 \u1089 \u1083 \u1086 \u1074 \u1080 \u1103 :*\\n"\
+        for k in add_conditions:\
+            n, d, p = ADD_CONDITIONS_LIST[k]\
+            add_list += f"  \'95 \{n\} (+\{int(p*100)\}%)\\n"\
+\
+    text = (\
+        f"\uc0\u55357 \u56522  *\u1056 \u1045 \u1047 \u1059 \u1051 \u1068 \u1058 \u1040 \u1058  \u1056 \u1040 \u1057 \u1063 \u1025 \u1058 \u1040 *\\n"\
+        f"\{'\uc0\u9472 '*30\}\\n"\
+        f"\uc0\u55356 \u57303  \u1054 \u1073 \u1098 \u1105 \u1084 : \{volume:,.0f\} \u1084 \'b3\\n"\
+        f"\uc0\u55356 \u57314  \u1069 \u1090 \u1072 \u1078 \u1085 \u1086 \u1089 \u1090 \u1100 : \{ud['floors']\}\\n"\
+        f"\uc0\u55357 \u56528  \u1057 \u1083 \u1086 \u1078 \u1085 \u1086 \u1089 \u1090 \u1100  \u1079 \u1076 \u1072 \u1085 \u1080 \u1103 : \{ud['complexity_build']\}\\n"\
+        f"\uc0\u55357 \u56615  \u1057 \u1083 \u1086 \u1078 \u1085 \u1086 \u1089 \u1090 \u1100  \u1088 \u1072 \u1073 \u1086 \u1090 : \{ud['complexity_work']\}\\n"\
+        f"\uc0\u55357 \u56525  \u1056 \u1072 \u1089 \u1087 \u1086 \u1083 \u1086 \u1078 \u1077 \u1085 \u1080 \u1077 : \{ud['location']\}\\n"\
+        f"\{'\uc0\u9472 '*30\}\\n\\n"\
+        f"\uc0\u55357 \u56508  *\u1042 \u1048 \u1044 \u1067  \u1056 \u1040 \u1041 \u1054 \u1058 :*\\n" +\
+        "\\n".join(lines) +\
+        add_list +\
+        f"\\n\\n\{'\uc0\u9472 '*30\}\\n"\
+        f"\uc0\u55357 \u56496  *\u1048 \u1058 \u1054 \u1043 \u1054 : \u8776  \{grand_total:,.0f\} \u8381 *\\n"\
+        f"\{'\uc0\u9472 '*30\}\\n\\n"\
+        f"\uc0\u9888 \u65039  _\u1053 \u1044 \u1057  \u1085 \u1077  \u1074 \u1082 \u1083 \u1102 \u1095 \u1105 \u1085 . \u1042 \u1089 \u1082 \u1088 \u1099 \u1090 \u1080 \u1103  \u1082 \u1086 \u1085 \u1089 \u1090 \u1088 \u1091 \u1082 \u1094 \u1080 \u1081  \'97 \u1079 \u1072  \u1089 \u1095 \u1105 \u1090  \u1079 \u1072 \u1082 \u1072 \u1079 \u1095 \u1080 \u1082 \u1072  (\u1087 . 1.4 \u1057 \u1041 \u1062 \u1055 )._\\n"\
+        f"_\uc0\u1041 \u1072 \u1079 \u1086 \u1074 \u1099 \u1077  \u1094 \u1077 \u1085 \u1099  \u1087 \u1086  \u1057 \u1041 \u1062 \u1055  81-2001-25. \u1048 \u1085 \u1076 \u1077 \u1082 \u1089  II \u1082 \u1074 . 2026: \u1082  = 7,07_\\n\\n"\
+        f"\uc0\u55357 \u56542  \u1044 \u1083 \u1103  \u1086 \u1092 \u1086 \u1088 \u1084 \u1083 \u1077 \u1085 \u1080 \u1103  \u1079 \u1072 \u1103 \u1074 \u1082 \u1080  \u1086 \u1073 \u1088 \u1072 \u1090 \u1080 \u1090 \u1077 \u1089 \u1100  \u1082  \u1084 \u1077 \u1085 \u1077 \u1076 \u1078 \u1077 \u1088 \u1091  \u1055 \u1088 \u1072 \u1081 \u1084  \u1061 \u1072 \u1091 \u1089 .\\n\\n"\
+        f"\uc0\u55357 \u56580  /start \'97 \u1085 \u1086 \u1074 \u1099 \u1081  \u1088 \u1072 \u1089 \u1095 \u1105 \u1090 "\
+    )\
+\
+    keyboard = [[InlineKeyboardButton("\uc0\u55357 \u56580  \u1053 \u1086 \u1074 \u1099 \u1081  \u1088 \u1072 \u1089 \u1095 \u1105 \u1090 ", callback_data="restart")]]\
+    await query.edit_message_text(\
+        text,\
+        reply_markup=InlineKeyboardMarkup(keyboard),\
+        parse_mode="Markdown"\
+    )\
+    return RESULT\
+\
+\
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    query = update.callback_query\
+    await query.answer()\
+    context.user_data.clear()\
+    await query.edit_message_text(\
+        "\uc0\u55356 \u57303  *\u1050 \u1072 \u1083 \u1100 \u1082 \u1091 \u1083 \u1103 \u1090 \u1086 \u1088  \u1091 \u1089 \u1083 \u1091 \u1075  \u1086 \u1073 \u1089 \u1083 \u1077 \u1076 \u1086 \u1074 \u1072 \u1085 \u1080 \u1103  \u1080  \u1087 \u1088 \u1086 \u1077 \u1082 \u1090 \u1080 \u1088 \u1086 \u1074 \u1072 \u1085 \u1080 \u1103 *\\n"\
+        "_\uc0\u1055 \u1088 \u1072 \u1081 \u1084  \u1061 \u1072 \u1091 \u1089 _ | \u1041 \u1072 \u1079 \u1086 \u1074 \u1099 \u1077  \u1094 \u1077 \u1085 \u1099  \u1087 \u1086  \u1057 \u1041 \u1062 \u1055  81-2001-25\\n\\n"\
+        "\uc0\u1042 \u1074 \u1077 \u1076 \u1080 \u1090 \u1077  *\u1089 \u1090 \u1088 \u1086 \u1080 \u1090 \u1077 \u1083 \u1100 \u1085 \u1099 \u1081  \u1086 \u1073 \u1098 \u1105 \u1084  \u1079 \u1076 \u1072 \u1085 \u1080 \u1103 * \u1074  \u1084 \'b3:",\
+        parse_mode="Markdown"\
+    )\
+    return VOLUME\
+\
+\
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):\
+    await update.message.reply_text("\uc0\u10060  \u1056 \u1072 \u1089 \u1095 \u1105 \u1090  \u1086 \u1090 \u1084 \u1077 \u1085 \u1105 \u1085 . \u1042 \u1074 \u1077 \u1076 \u1080 \u1090 \u1077  /start \u1095 \u1090 \u1086 \u1073 \u1099  \u1085 \u1072 \u1095 \u1072 \u1090 \u1100  \u1079 \u1072 \u1085 \u1086 \u1074 \u1086 .")\
+    return ConversationHandler.END\
+\
+\
+def main():\
+    app = ApplicationBuilder().token(TOKEN).build()\
+\
+    conv = ConversationHandler(\
+        entry_points=[CommandHandler("start", start)],\
+        states=\{\
+            VOLUME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_volume)],\
+            HEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_height)],\
+            FLOORS: [CallbackQueryHandler(get_floors, pattern="^floors_")],\
+            COMPLEXITY_BUILD: [CallbackQueryHandler(get_complexity_build, pattern="^cb_")],\
+            COMPLEXITY_WORK: [CallbackQueryHandler(get_complexity_work, pattern="^cw_")],\
+            LOCATION: [CallbackQueryHandler(get_location, pattern="^loc_")],\
+            WORK_TYPES: [CallbackQueryHandler(get_work_types, pattern="^wt_")],\
+            ADD_CONDITIONS: [CallbackQueryHandler(get_add_conditions, pattern="^ac_")],\
+            RESULT: [CallbackQueryHandler(restart, pattern="^restart$")],\
+        \},\
+        fallbacks=[CommandHandler("cancel", cancel)],\
+        allow_reentry=True,\
+    )\
+\
+    app.add_handler(conv)\
+    print("\uc0\u9989  \u1041 \u1086 \u1090  \u1079 \u1072 \u1087 \u1091 \u1097 \u1077 \u1085 !")\
+    app.run_polling()\
+\
+\
+if __name__ == "__main__":\
+    main()}
